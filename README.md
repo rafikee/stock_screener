@@ -1,8 +1,6 @@
 # stock_screener
 A Google Cloud Function that runs daily to search for stocks fitting the Minervini template adjusted to my liking
 
-# How to deploy
-
 ## Configure GCP
 - Create a Google Cloud Project that can do billing
 - Enable the following APIs in the project
