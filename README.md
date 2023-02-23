@@ -38,4 +38,4 @@ In the root directory create a config.py file that has the following:
 
 *Ensure that you have setup gcloud from the command line and it points to your correct GCP project*
 
-`gcloud functions deploy exercise --set-env-vars project_id=xxxxxxx --runtime python39 --trigger-http --allow-unauthenticated`
+`gcloud functions deploy exercise --set-env-vars --project_id=xxxxxxx --runtime python39 --trigger-http --allow-unauthenticated`
