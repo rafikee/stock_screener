@@ -23,6 +23,14 @@ A Google Cloud Function that runs daily to search for stocks fitting the Minervi
     - Add a new job with a frequency you like, I did every day at 3PM PT
     - Make sure to set the right timezone
     - For the execution use the URL from the cloud function
+    
+
+## Create a config.py file
+In the root directory create a config.py file that has the following:
+
+```project_id = xxx```
+
+`xxx` is the project ID of your Google Cloud Project
 
 ## Deploy
 
@@ -30,4 +38,4 @@ A Google Cloud Function that runs daily to search for stocks fitting the Minervi
 
 *Ensure that you have setup gcloud from the command line and it points to your correct GCP project*
 
-`gcloud functions deploy exercise --set-env-vars project_id=home-automation-272816 --runtime python39 --trigger-http --allow-unauthenticated`
+`gcloud functions deploy exercise --set-env-vars project_id=xxxxxxx --runtime python39 --trigger-http --allow-unauthenticated`
