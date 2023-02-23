@@ -1,0 +1,10 @@
+# Function dependencies, for example:
+# package>=version
+pandas
+pandas_datareader
+yfinance
+finvizfinance
+gspread
+gspread-dataframe
+oauth2client
+google-cloud-secret-manager
