@@ -26,8 +26,8 @@ A Google Cloud Function that runs daily to search for stocks fitting the Minervi
 
 ## Deploy
 
-*Make sure to update the project_id*
+*Make sure to update the project id to yours in all variable below*
 
 *Ensure that you have setup gcloud from the command line and it points to your correct GCP project*
 
-`gcloud functions deploy exercise --set-env-vars project_id=home-automation-272816 --runtime python39 --trigger-http --allow-unauthenticated`
+`gcloud functions deploy stock-screener --project=xxxx --runtime python39 --trigger-http --allow-unauthenticated --set-env-vars MY_PROJECT_ID=xxx`
