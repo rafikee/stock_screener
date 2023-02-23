@@ -23,19 +23,11 @@ A Google Cloud Function that runs daily to search for stocks fitting the Minervi
     - Add a new job with a frequency you like, I did every day at 3PM PT
     - Make sure to set the right timezone
     - For the execution use the URL from the cloud function
-    
-
-## Create a config.py file
-In the root directory create a config.py file that has the following:
-
-```project_id = xxx```
-
-`xxx` is the project ID of your Google Cloud Project
 
 ## Deploy
 
-*Make sure to update the project to yours*
+*Make sure to update the project id to yours in all variable below*
 
 *Ensure that you have setup gcloud from the command line and it points to your correct GCP project*
 
-`gcloud functions deploy stock-screener --project=xxxx --runtime python39 --trigger-http --allow-unauthenticated`
+`gcloud functions deploy stock-screener --project=xxxx --runtime python39 --trigger-http --allow-unauthenticated --set-env-vars MY_PROJECT_ID=xxx`
