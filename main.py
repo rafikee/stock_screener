@@ -30,14 +30,21 @@ def get_secret(secret_name: str):
 
 
 def main(request):
-    service_account_json = get_secret("service_account_json")
+    # If we are testing locally get the json file locally otherwise get from cloud
+    if request == "test":
+        with open("service_account.json") as json_file:
+            service_account_json = json.load(json_file)
+        pass
+    else:
+        service_account_json = get_secret("service_account_json")
+
     # To access Google Sheets
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive",
     ]
     creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        service_account_json, scope
+        service_account_json, scope  # type: ignore
     )
 
     # we need to get roughly a year's worth of data to evaluate a stock for all the metrics
@@ -78,7 +85,13 @@ def main(request):
     output = pd.DataFrame()  # Create the empty output DataFrame
 
     # Loop through all the stocks we got from FinViz
+    stock_data = []
     for stock in stocks:
+        # added this short if statement because finviz changed Ticker to Ticker\n\n
+        # if they ever fix it this shoould still work
+        if "Ticker\n\n" in stock:
+            stock["Ticker"] = stock.pop("Ticker\n\n")
+
         ticker = stock["Ticker"]
 
         try:
@@ -141,12 +154,12 @@ def main(request):
             stock["cond 5"] = cond_5
             stock["cond 6"] = cond_6
 
-            output = output.append(
-                stock, ignore_index=True
-            )  # append this stock to the output
+            stock_data.append(stock)
 
-        except Exception:
-            print("No data on " + ticker)
+        except Exception as e:
+            print("There was an error with this stock", stock["Ticker"], e)
+
+    output = pd.DataFrame(stock_data)
 
     # set the type of each column for formatting
     output = output.astype(
@@ -160,7 +173,7 @@ def main(request):
             "cond 6": "int",
             "Volume": "int",
             "Market Cap": "int",
-        }
+        }  # type: ignore
     )
 
     # Round for appearance
@@ -266,3 +279,13 @@ def main(request):
     # hide the conditions columns (we have 6 of them)
     sheet.hide_columns(col_count - 6, col_count)
     return "Yay Stocks!"
+
+
+# running locally to test
+if __name__ == "__main__":
+    import tracemalloc
+
+    tracemalloc.start()
+    main("test")
+    print(tracemalloc.get_traced_memory())
+    tracemalloc.stop()
