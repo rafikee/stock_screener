@@ -10,7 +10,7 @@ from google.cloud import secretmanager
 import json
 import pytz
 import os
-
+from aatinaa import sharia_status
 # This is set upon gcloud deployment
 PROJECT_ID = os.getenv("MY_PROJECT_ID")
 
@@ -159,7 +159,7 @@ def main(request):
         except Exception as e:
             print("There was an error with this stock", stock["Ticker"], e)
 
-    output = pd.DataFrame(stock_data)
+    output = pd.DataFrame(stock_data) # type: ignore
 
     # set the type of each column for formatting
     output = output.astype(
@@ -173,8 +173,15 @@ def main(request):
             "cond 6": "int",
             "Volume": "int",
             "Market Cap": "int",
-        }  # type: ignore
+        }
     )
+
+    # Add the sharia status to the output
+    for index, row in output.iterrows():
+        if row["cond count"] > 0:
+            ticker = row["Ticker"]
+            sharia = sharia_status(ticker)
+            output.at[index, "Sharia"] = sharia
 
     # Round for appearance
     output = output.round({"Volume": 0, "Market Cap": 0, "Price": 2, "Change": 4})
@@ -249,6 +256,8 @@ def main(request):
         )
 
     # Sort and Filter. Filter out to only show the ones that met all 6 conditions, and sort by Volume
+    
+    # Here we identify the 3 different columns we need to filter and sort by
     cond_count_cell = sheet.find("cond count")
     if cond_count_cell:
         cond_count_cell = cond_count_cell.col
@@ -257,14 +266,22 @@ def main(request):
     if vol_cell:
         vol_cell = vol_cell.col
 
-    if vol_cell and cond_count_cell:
+    sharia_cell = sheet.find("Sharia")
+    if sharia_cell:
+        sharia_cell = sharia_cell.col
+
+    if vol_cell and cond_count_cell and sharia_cell:
         filterSettings = {
             "range": {"sheetId": sheet.id},
             "filterSpecs": [
                 {
                     "filterCriteria": {"hiddenValues": ["0,", "1", "2", "3", "4", "5"]},
                     "columnIndex": cond_count_cell - 1,
-                }
+                },
+                {
+                    "filterCriteria": {"hiddenValues": ["FAILED"]},
+                    "columnIndex": sharia_cell - 1,
+                },
             ],
             "sortSpecs": [
                 {
@@ -273,11 +290,13 @@ def main(request):
                 }
             ],
         }
+
         gs.batch_update({"requests": [{"setBasicFilter": {"filter": filterSettings}}]})
         sheet.columns_auto_resize(0, col_count)  # resize the columns
 
     # hide the conditions columns (we have 6 of them)
-    sheet.hide_columns(col_count - 6, col_count)
+    # we added the sharia column at the end so hide the 6 before it
+    sheet.hide_columns(col_count - 7, col_count - 1)
     return "Yay Stocks!"
 
 
