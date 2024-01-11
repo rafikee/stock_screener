@@ -8,3 +8,4 @@
 #
 .gcloudignore
 *.json
+.DS_store
