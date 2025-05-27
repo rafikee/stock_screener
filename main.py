@@ -3,7 +3,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe
 import datetime as dt
 import pandas as pd
-from pandas_datareader import data as pdr
 import yfinance as yf
 from finvizfinance.screener.overview import Overview
 from google.cloud import secretmanager
@@ -11,6 +10,8 @@ import json
 import pytz
 import os
 from aatinaa import sharia_status
+import time
+
 # This is set upon gcloud deployment
 PROJECT_ID = os.getenv("MY_PROJECT_ID")
 
@@ -27,6 +28,33 @@ def get_secret(secret_name: str):
     except:
         pass
     return secret  # returns a json or a string depending on the secret type
+
+
+def get_stock_data(ticker, start_date, end_date, max_retries=3):
+    """Get stock data with retries and better error handling"""
+    for attempt in range(max_retries):
+        try:
+            # Create a Ticker object
+            ticker_obj = yf.Ticker(ticker)
+
+            # Get the data
+            df = ticker_obj.history(start=start_date, end=end_date, interval="1d")
+
+            if df.empty:
+                print(f"Warning: No data available for {ticker}")
+                return None
+
+            return df
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Attempt {attempt + 1} failed for {ticker}: {str(e)}")
+                time.sleep(2)  # Wait 2 seconds before retrying
+            else:
+                print(
+                    f"Failed to get data for {ticker} after {max_retries} attempts: {str(e)}"
+                )
+                return None
 
 
 def main(request):
@@ -50,9 +78,6 @@ def main(request):
     # we need to get roughly a year's worth of data to evaluate a stock for all the metrics
     now = dt.datetime.now()
     start = now - dt.timedelta(days=400)
-
-    # Explanation on this. https://github.com/ranaroussi/yfinance#pandas_datareader-override
-    yf.pdr_override()
 
     # Choose either Adjusted Close or Regular Close
     closing_types = ["Adj Close", "Close"]
@@ -78,6 +103,7 @@ def main(request):
 
         # Get the DataFrame as list of dicts to loop through
         stocks = finviz.to_dict("records")
+        print(f"\nFound {len(stocks)} stocks from Finviz")
 
     else:
         return "We couldn't get the stocks from FinViz"
@@ -93,12 +119,17 @@ def main(request):
             stock["Ticker"] = stock.pop("Ticker\n\n")
 
         ticker = stock["Ticker"]
+        print(f"\nProcessing {ticker}...")
 
         try:
-            df = pdr.get_data_yahoo(ticker, start, now)
+            # Get stock data using our new function
+            df = get_stock_data(ticker, start, now)
+
+            if df is None:
+                continue
 
             # Get most recently close (last row in df)
-            currentClose = df.tail(1)[close][0]
+            currentClose = df[close].iloc[-1]
 
             # Get SMA for 50, 150, 200 and round to 2 decimals
             moving_average_50 = round(df.tail(50)[close].mean(), 2)
@@ -155,11 +186,17 @@ def main(request):
             stock["cond 6"] = cond_6
 
             stock_data.append(stock)
+            print(f"Successfully processed {ticker}")
 
         except Exception as e:
-            print("There was an error with this stock", stock["Ticker"], e)
+            print(f"Error processing {ticker}: {str(e)}")
 
-    output = pd.DataFrame(stock_data) # type: ignore
+    if not stock_data:
+        print("\nNo stocks were successfully processed!")
+        return "No stocks were successfully processed"
+
+    output = pd.DataFrame(stock_data)  # type: ignore
+    print(f"\nSuccessfully processed {len(output)} stocks")
 
     # set the type of each column for formatting
     output = output.astype(
@@ -256,7 +293,7 @@ def main(request):
         )
 
     # Sort and Filter. Filter out to only show the ones that met all 6 conditions, and sort by Volume
-    
+
     # Here we identify the 3 different columns we need to filter and sort by
     cond_count_cell = sheet.find("cond count")
     if cond_count_cell:
