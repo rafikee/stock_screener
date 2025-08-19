@@ -3,7 +3,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe
 import datetime as dt
 import pandas as pd
-import yfinance as yf
 from finvizfinance.screener.overview import Overview
 from google.cloud import secretmanager
 import json
@@ -11,9 +10,23 @@ import pytz
 import os
 from aatinaa import sharia_status
 import time
+from alpaca.data import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+from dotenv import load_dotenv
 
 # This is set upon gcloud deployment
 PROJECT_ID = os.getenv("MY_PROJECT_ID")
+
+# Load environment variables
+load_dotenv()
+
+# Alpaca API configuration
+ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
+ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
+
+# Create Alpaca client
+alpaca_client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
 
 
 def get_secret(secret_name: str):
@@ -31,30 +44,135 @@ def get_secret(secret_name: str):
 
 
 def get_stock_data(ticker, start_date, end_date, max_retries=3):
-    """Get stock data with retries and better error handling"""
+    """Get stock data using Alpaca API (much more reliable and higher rate limits)"""
+    
     for attempt in range(max_retries):
         try:
-            # Create a Ticker object
-            ticker_obj = yf.Ticker(ticker)
-
+            # Add small delay between requests to be respectful
+            if attempt > 0:
+                time.sleep(0.1)  # Very small delay since Alpaca has high rate limits
+            
+            print(f"Fetching data for {ticker} from Alpaca...")
+            
+            # Create request for daily bars
+            request = StockBarsRequest(
+                symbol_or_symbols=ticker,
+                timeframe=TimeFrame.Day,
+                start=start_date,
+                end=end_date
+            )
+            
             # Get the data
-            df = ticker_obj.history(start=start_date, end=end_date, interval="1d")
+            bars = alpaca_client.get_stock_bars(request)
+            
 
-            if df.empty:
+            
+            if not bars or len(bars.data) == 0:
                 print(f"Warning: No data available for {ticker}")
                 return None
-
-            return df
-
+            
+            # Try to access the raw data directly
+            try:
+                # Get the raw data from the bars object
+                raw_data = bars.data
+                
+                # Alpaca returns data as a dict with ticker as key
+                if isinstance(raw_data, dict) and ticker in raw_data:
+                    # Extract the actual bar data for this ticker
+                    ticker_data = raw_data[ticker]
+                    
+                    # Convert raw data to DataFrame manually
+                    data_list = []
+                    for item in ticker_data:
+                        if hasattr(item, 'timestamp') and hasattr(item, 'close'):
+                            # This is a bar object
+                            data_list.append({
+                                'timestamp': item.timestamp,
+                                'open': item.open,
+                                'high': item.high,
+                                'low': item.low,
+                                'close': item.close,
+                                'volume': item.volume
+                            })
+                        elif isinstance(item, dict):
+                            # This is already a dict
+                            data_list.append(item)
+                        else:
+                            print(f"Debug: Unexpected item type: {type(item)}, value: {item}")
+                    
+                    if not data_list:
+                        print(f"Warning: No valid data found for {ticker}")
+                        return None
+                    
+                    # Create DataFrame from the data
+                    df = pd.DataFrame(data_list)
+                    
+                    # Set timestamp as index
+                    if 'timestamp' in df.columns:
+                        df['Date'] = pd.to_datetime(df['timestamp'])
+                        df.set_index('Date', inplace=True)
+                        df = df.drop('timestamp', axis=1)
+                    
+                    # Rename columns to match our expected format
+                    column_mapping = {
+                        'open': 'Open',
+                        'high': 'High',
+                        'low': 'Low',
+                        'close': 'Close',
+                        'volume': 'Volume'
+                    }
+                    
+                    for alpaca_col, our_col in column_mapping.items():
+                        if alpaca_col in df.columns:
+                            df[our_col] = df[alpaca_col]
+                    
+                    # Ensure we have the Close column
+                    if 'Close' not in df.columns:
+                        print(f"Warning: No Close price data for {ticker}")
+                        return None
+                    
+                    # Validate that we have enough data
+                    if len(df) < 50:
+                        print(f"Warning: Insufficient data for {ticker} (only {len(df)} days)")
+                        return None
+                    
+                    print(f"Successfully got data for {ticker} ({len(df)} days)")
+                    return df
+                else:
+                    print(f"Warning: No data found for ticker {ticker} in response")
+                    return None
+                
+            except Exception as df_error:
+                print(f"DataFrame conversion error for {ticker}: {str(df_error)}")
+                if attempt < max_retries - 1:
+                    continue
+                else:
+                    return None
+            
         except Exception as e:
-            if attempt < max_retries - 1:
-                print(f"Attempt {attempt + 1} failed for {ticker}: {str(e)}")
-                time.sleep(2)  # Wait 2 seconds before retrying
-            else:
-                print(
-                    f"Failed to get data for {ticker} after {max_retries} attempts: {str(e)}"
-                )
+            error_msg = str(e)
+            print(f"Full error for {ticker}: {error_msg}")
+            print(f"Error type: {type(e)}")
+            
+            if "not found" in error_msg.lower() or "404" in error_msg:
+                print(f"Warning: {ticker} not found in Alpaca database")
                 return None
+            elif "rate limit" in error_msg.lower() or "429" in error_msg:
+                if attempt < max_retries - 1:
+                    print(f"Rate limited for {ticker}, attempt {attempt + 1}/{max_retries}")
+                    time.sleep(1 * (attempt + 1))  # Small delay for rate limiting
+                else:
+                    print(f"Failed to get data for {ticker} after {max_retries} attempts: Rate limited")
+                    return None
+            else:
+                if attempt < max_retries - 1:
+                    print(f"Attempt {attempt + 1} failed for {ticker}: {error_msg}")
+                    time.sleep(0.5 * (attempt + 1))
+                else:
+                    print(f"Failed to get data for {ticker} after {max_retries} attempts: {error_msg}")
+                    return None
+    
+    return None
 
 
 def main(request):
@@ -112,14 +230,26 @@ def main(request):
 
     # Loop through all the stocks we got from FinViz
     stock_data = []
-    for stock in stocks:
+    
+    # For testing, you can limit the number of stocks processed
+    # Set to None to process all stocks, or set to a number (e.g., 5) for testing
+    MAX_STOCKS_TO_PROCESS = None  # Process all stocks
+    
+    stocks_to_process = stocks[:MAX_STOCKS_TO_PROCESS] if MAX_STOCKS_TO_PROCESS else stocks
+    print(f"Processing {len(stocks_to_process)} stocks (out of {len(stocks)} total)")
+    
+    for i, stock in enumerate(stocks_to_process):
         # added this short if statement because finviz changed Ticker to Ticker\n\n
         # if they ever fix it this shoould still work
         if "Ticker\n\n" in stock:
             stock["Ticker"] = stock.pop("Ticker\n\n")
 
         ticker = stock["Ticker"]
-        print(f"\nProcessing {ticker}...")
+        print(f"\nProcessing {ticker}... ({i+1}/{len(stocks_to_process)})")
+        
+        # Add minimal delay between requests since Alpaca has high rate limits
+        if i > 0:
+            time.sleep(0.1)  # 0.1 second delay between requests
 
         try:
             # Get stock data using our new function

@@ -3,3 +3,4 @@ __pycache__
 *.json
 .DS_store
 .venv
+.env
