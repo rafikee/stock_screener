@@ -1,3 +1,5 @@
+I stopped using this and keeping it as a reference. I have the latest code running in the souptrader project.
+
 # stock_screener
 
 A Google Cloud Function that runs daily to search for stocks fitting the Minervini template adjusted to my liking
